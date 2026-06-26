@@ -1,0 +1,31 @@
+# ─────────────────────────────────────────
+# Core Framework
+# ─────────────────────────────────────────
+dspy>=2.6.0                    # DSPy framework (MIPROv2, ChainOfThought, etc.)
+fastapi>=0.115.0               # API framework
+uvicorn[standard]>=0.30.0      # ASGI server
+streamlit>=1.36.0              # Single-app UI for running the advisor pipeline
+
+# ─────────────────────────────────────────
+# LLM Providers (via LiteLLM inside DSPy)
+# ─────────────────────────────────────────
+google-generativeai>=0.8.0     # Gemini 2.5 Flash backend
+litellm>=1.55.0                # Multi-provider LLM routing (used internally by DSPy)
+
+# ─────────────────────────────────────────
+# DSPy Optimizer dependencies
+# ─────────────────────────────────────────
+optuna>=3.6.0                  # Required by MIPROv2 for Bayesian Optimization
+pandas>=2.0.0                  # For trainset/devset manipulation in optimize.py
+
+# ─────────────────────────────────────────
+# Pydantic (FastAPI model validation)
+# ─────────────────────────────────────────
+pydantic>=2.7.0
+
+# ─────────────────────────────────────────
+# Utilities
+# ─────────────────────────────────────────
+python-dotenv>=1.0.0           # Load .env for local dev
+tqdm>=4.66.0                   # Progress bars during optimization runs
+socksio>=1.0.0                 # SOCKS proxy support for httpx/LiteLLM Gemini calls
