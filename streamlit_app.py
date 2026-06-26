@@ -66,6 +66,12 @@ def initialize_state() -> None:
         st.session_state.advisor_run_count = 0
     if "last_request_payload" not in st.session_state:
         st.session_state.last_request_payload = None
+    if "payload_json_editor" not in st.session_state:
+        st.session_state.payload_json_editor = ""
+
+
+def format_payload_json(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, indent=2, ensure_ascii=False)
 
 
 def parse_extra_json(raw_json: str, label: str) -> dict[str, Any]:
@@ -81,6 +87,53 @@ def parse_extra_json(raw_json: str, label: str) -> dict[str, Any]:
 
     if not isinstance(parsed, dict):
         st.error(f"{label} must be a JSON object.")
+        st.stop()
+
+    return parsed
+
+
+def parse_payload_json(raw_json: str) -> dict[str, Any]:
+    raw_json = raw_json.strip()
+    if not raw_json:
+        st.error("Payload JSON cannot be empty.")
+        st.stop()
+
+    try:
+        parsed = json.loads(raw_json)
+    except json.JSONDecodeError as exc:
+        st.error(f"Payload JSON must be valid JSON: {exc.msg}")
+        st.stop()
+
+    if not isinstance(parsed, dict):
+        st.error("Payload JSON must be a JSON object.")
+        st.stop()
+
+    required_fields = {
+        "recent_transcript",
+        "customer_state",
+        "conversation_history",
+        "available_inventory",
+        "last_advisor_action",
+    }
+    missing_fields = sorted(required_fields - parsed.keys())
+    if missing_fields:
+        st.error(f"Payload JSON is missing required fields: {', '.join(missing_fields)}")
+        st.stop()
+
+    if not isinstance(parsed["recent_transcript"], list):
+        st.error("Payload JSON field recent_transcript must be an array.")
+        st.stop()
+    if not isinstance(parsed["customer_state"], dict):
+        st.error("Payload JSON field customer_state must be an object.")
+        st.stop()
+    if not isinstance(parsed["conversation_history"], dict):
+        st.error("Payload JSON field conversation_history must be an object.")
+        st.stop()
+    if parsed["available_inventory"] is not None and not isinstance(parsed["available_inventory"], dict):
+        st.error("Payload JSON field available_inventory must be an object or null.")
+        st.stop()
+    if not isinstance(parsed["last_advisor_action"], str):
+        st.error("Payload JSON field last_advisor_action must be a string.")
         st.stop()
 
     return parsed
@@ -422,8 +475,37 @@ conversation_history = {
 payload = build_payload(customer_state, conversation_history, include_inventory, last_advisor_action)
 
 with right:
-    st.subheader("Generated Payload")
-    st.json(payload)
+    st.subheader("Payload")
+    payload_source = st.radio(
+        "Payload source",
+        ["Generated from inputs", "Paste JSON"],
+        horizontal=True,
+    )
+
+    if not st.session_state.payload_json_editor:
+        st.session_state.payload_json_editor = format_payload_json(payload)
+
+    if payload_source == "Generated from inputs":
+        request_payload = payload
+        st.json(request_payload)
+    else:
+        editor_col, reset_col = st.columns([0.72, 0.28])
+        with reset_col:
+            if st.button("Use generated payload", use_container_width=True):
+                st.session_state.payload_json_editor = format_payload_json(payload)
+                st.rerun()
+        with editor_col:
+            st.caption("Paste a JSON object matching the generated payload schema.")
+
+        payload_json = st.text_area(
+            "Payload JSON",
+            key="payload_json_editor",
+            height=360,
+        )
+        request_payload = parse_payload_json(payload_json)
+
+        with st.expander("Parsed payload preview"):
+            st.json(request_payload)
 
     run_col, clear_col = st.columns([0.7, 0.3])
     with run_col:
@@ -440,10 +522,10 @@ with right:
     if submitted:
         st.session_state.advisor_response_payload = None
         st.session_state.advisor_error = None
-        st.session_state.last_request_payload = payload
+        st.session_state.last_request_payload = request_payload
         st.session_state.advisor_run_count += 1
 
-        if not payload["recent_transcript"]:
+        if not request_payload["recent_transcript"]:
             st.session_state.advisor_error = "Add at least one transcript turn before running the advisor."
         elif not gemini_api_key.strip():
             st.session_state.advisor_error = "Add a Gemini API key in the sidebar before running the advisor."
@@ -452,7 +534,7 @@ with right:
         else:
             with st.spinner(f"Running advisor pipeline... run #{st.session_state.advisor_run_count}"):
                 try:
-                    response_payload = run_advisor(payload, gemini_api_key.strip(), gemini_model.strip())
+                    response_payload = run_advisor(request_payload, gemini_api_key.strip(), gemini_model.strip())
                 except Exception as exc:
                     st.session_state.advisor_error = format_runtime_error(exc, gemini_api_key.strip())
                 else:
