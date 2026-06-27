@@ -27,6 +27,19 @@ load_dotenv()
 # ─────────────────────────────────────────
 OPTIMIZED_WEIGHTS_PATH = "optimized_pipeline.json"
 
+TRANSCRIPT_COLUMN_ALIASES = (
+    "Call Transcript",
+    "audio_transcript",
+    "transcript",
+    "Transcript",
+)
+
+BUY_LEAD_COLUMN_ALIASES = (
+    "buylead",
+    "buy_lead",
+    "call_id",
+)
+
 VALID_ACTIONS = {
     "suggest_product",
     "handle_objection",
@@ -63,6 +76,26 @@ dspy.configure(lm=lm)
 #      - "has_objection"     : "true"/"false"
 # ─────────────────────────────────────────
 
+def find_column(fieldnames: list[str] | None, candidates: tuple[str, ...]) -> str | None:
+    if not fieldnames:
+        return None
+
+    normalized = {name.strip().lower(): name for name in fieldnames}
+    for candidate in candidates:
+        match = normalized.get(candidate.lower())
+        if match:
+            return match
+
+    return None
+
+
+def parse_buylead(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized in ("", "0", "no", "false", "n"):
+        return "no"
+    return "yes"
+
+
 def build_trainset(filepath: str, max_examples: int = 80) -> list[dspy.Example]:
     """
     Converts rows from human_transcripts.csv into dspy.Example objects.
@@ -79,6 +112,24 @@ def build_trainset(filepath: str, max_examples: int = 80) -> list[dspy.Example]:
     try:
         with open(filepath, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
+            transcript_column = find_column(reader.fieldnames, TRANSCRIPT_COLUMN_ALIASES)
+            if not transcript_column:
+                print(f"[ERROR] Could not find a transcript column in {filepath}.")
+                print(f"        Expected one of: {', '.join(TRANSCRIPT_COLUMN_ALIASES)}")
+                print(f"        Found columns: {reader.fieldnames}")
+                return []
+
+            buylead_column = find_column(reader.fieldnames, BUY_LEAD_COLUMN_ALIASES)
+            if not buylead_column:
+                print(f"[ERROR] Missing required label column in {filepath}.")
+                print(f"        Expected one of: {', '.join(BUY_LEAD_COLUMN_ALIASES)}")
+                print("        Values should be 'yes'/'no', or non-empty lead IDs for yes.")
+                print(f"        Found columns: {reader.fieldnames}")
+                return []
+
+            if buylead_column != "buylead":
+                print(f"[INFO] Using '{buylead_column}' as the buylead column.")
+
             rows = list(reader)
     except FileNotFoundError:
         print(f"[ERROR] {filepath} not found. Aborting.")
@@ -88,11 +139,11 @@ def build_trainset(filepath: str, max_examples: int = 80) -> list[dspy.Example]:
     rows = rows[:max_examples]
 
     for row in rows:
-        transcript = row.get("Call Transcript", "").strip()
+        transcript = row.get(transcript_column, "").strip()
         if not transcript:
             continue
 
-        buylead = row.get("buylead", "no").strip().lower()
+        buylead = parse_buylead(row.get(buylead_column, ""))
 
         # ── Slice transcript to simulate "recent" turns ──
         recent = transcript[-800:] if len(transcript) > 800 else transcript
